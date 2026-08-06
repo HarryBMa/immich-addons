@@ -137,29 +137,48 @@ def test_saving_invalid_config_reports_and_does_not_persist(
 # --- jobs ---------------------------------------------------------------------------------
 
 
-def test_running_a_stub_addon_fails_cleanly_and_logs_why(client: TestClient, app) -> None:  # noqa: ANN001
-    """PLAN.md Phase 2 acceptance: a stub Run creates a job that fails cleanly with its log."""
+def _await_terminal(jobs, job_id: int, timeout: float = 5.0):  # noqa: ANN001, ANN202
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        job = jobs.get(job_id)
+        if job and job.is_terminal:
+            return job
+        time.sleep(0.02)
+    return jobs.get(job_id)
+
+
+def test_running_an_addon_creates_a_visible_job(client: TestClient, app) -> None:  # noqa: ANN001
+    """PLAN.md Phase 2 acceptance: Run creates a job whose outcome and log are visible.
+
+    Deliberately does not assert *how* the run ends: with no Immich reachable it fails, and as the
+    addons land it fails differently. What must hold is that the job exists, reaches a terminal
+    state, keeps a log, and is reachable from the UI.
+    """
     response = client.post("/api/run/trip-best-picks", json={"dry_run": True})
     assert response.status_code == 202
     job_id = response.json()["job_id"]
 
-    jobs = app.state.jobs
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        job = jobs.get(job_id)
-        if job and job.is_terminal:
-            break
-        time.sleep(0.02)
+    job = _await_terminal(app.state.jobs, job_id)
+    assert job is not None
+    assert job.is_terminal
+    assert job.log.strip()
 
-    job = jobs.get(job_id)
+    assert "trip-best-picks" in client.get("/jobs").text
+    assert client.get(f"/jobs/{job_id}").status_code == 200
+
+
+def test_an_unimplemented_addon_fails_cleanly_and_says_where_it_lands(
+    client: TestClient,
+    app,  # noqa: ANN001
+) -> None:
+    """Stub addons must fail with a readable reason, not a bare traceback."""
+    job_id = client.post("/api/run/year-highlights", json={"dry_run": True}).json()["job_id"]
+    job = _await_terminal(app.state.jobs, job_id)
+
     assert job is not None
     assert job.status is JobStatus.FAILED
-    assert "Phase 4" in job.log, "the log should say where the real implementation lands"
+    assert "Phase 6" in job.log
     assert "NotImplementedError" in job.log
-
-    listing = client.get("/jobs").text
-    assert "trip-best-picks" in listing
-    assert client.get(f"/jobs/{job_id}").status_code == 200
 
 
 def test_jobs_fragment_is_pollable(client: TestClient) -> None:
