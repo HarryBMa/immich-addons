@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ config.title or config.topic or "Zine" }} — print</title>
+  {% include "_style.html" %}
+  <style>
+    /* Both formats print onto A4. mini8 is one landscape sheet holding eight panels in a 2x4
+       grid; booklet is a landscape sheet holding two A5 pages side by side, duplexed. */
+    @page { size: 297mm 210mm; margin: 0; }
+    .sheet {
+      width: 297mm; height: 210mm; position: relative;
+      page-break-after: always; display: grid;
+    }
+    .sheet:last-child { page-break-after: auto; }
+    .sheet.mini8 { grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr); }
+    .sheet.booklet { grid-template-columns: repeat(2, 1fr); }
+
+    .cell { position: relative; overflow: hidden; }
+    .cell.rotated { transform: rotate(180deg); }
+    .cell .page-body { width: 100%; height: 100%; }
+
+    .sheet-label {
+      position: absolute; top: 2mm; left: 2mm; font-size: 5pt; color: #999;
+      font-family: "DejaVu Sans Mono", monospace; z-index: 5;
+    }
+    {% if bleed %}
+    /* Fold guides and, for mini8, the single centre cut across the middle two columns. */
+    .guide { position: absolute; background: #bbb; z-index: 4; }
+    .guide.v { top: 0; bottom: 0; width: .2mm; }
+    .guide.h { left: 0; right: 0; height: .2mm; }
+    .cutline { position: absolute; height: .4mm; background: #000; z-index: 6; }
+    {% endif %}
+  </style>
+</head>
+<body>
+  {% for sheet in sheets %}
+  <section class="sheet {{ config.layout }}">
+    <div class="sheet-label">sheet {{ sheet.sheet }} · {{ sheet.side }}{% if config.layout == 'booklet' %} · flip on short edge{% endif %}</div>
+
+    {% for panel in sheet.panels %}
+    <div class="cell{% if panel.rotated %} rotated{% endif %}">
+      {% set page = page_by_number.get(panel.page) %}
+      <div class="page-body">
+        {% if page %}{% include "_page.html" %}{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+
+    {% if bleed %}
+      {% if config.layout == 'mini8' %}
+        <div class="guide h" style="top: 50%"></div>
+        <div class="guide v" style="left: 25%"></div>
+        <div class="guide v" style="left: 50%"></div>
+        <div class="guide v" style="left: 75%"></div>
+        {# The one cut: horizontally across the centre of the two middle columns. #}
+        <div class="cutline" style="top: 50%; left: 25%; width: 50%"></div>
+      {% else %}
+        <div class="guide v" style="left: 50%"></div>
+      {% endif %}
+    {% endif %}
+  </section>
+  {% endfor %}
+</body>
+</html>

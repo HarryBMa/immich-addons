@@ -1,0 +1,58 @@
+[
+  {
+    "sheet": 1,
+    "side": "front",
+    "panels": [
+      {
+        "page": 8,
+        "rotated": false
+      },
+      {
+        "page": 1,
+        "rotated": false
+      }
+    ]
+  },
+  {
+    "sheet": 1,
+    "side": "back",
+    "panels": [
+      {
+        "page": 2,
+        "rotated": false
+      },
+      {
+        "page": 7,
+        "rotated": false
+      }
+    ]
+  },
+  {
+    "sheet": 2,
+    "side": "front",
+    "panels": [
+      {
+        "page": 6,
+        "rotated": false
+      },
+      {
+        "page": 3,
+        "rotated": false
+      }
+    ]
+  },
+  {
+    "sheet": 2,
+    "side": "back",
+    "panels": [
+      {
+        "page": 4,
+        "rotated": false
+      },
+      {
+        "page": 5,
+        "rotated": false
+      }
+    ]
+  }
+]

@@ -10,10 +10,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # tests/test_lut_render.py applies the shipped LUTs for real and measures the result; it
-      # skips without ffmpeg, and silently skipping an acceptance test is worse than not having it.
-      - name: Install ffmpeg and exiftool
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg libimage-exiftool-perl
+      # Acceptance tests that shell out to real tools skip when the tool is missing, and a
+      # silently skipped acceptance test is worse than not having one. So CI installs all of them:
+      # ffmpeg + exiftool for auto-lut, Pango/Cairo for WeasyPrint's PDF output. This also makes CI
+      # the only place the zine PDFs are actually rendered — WeasyPrint cannot run on the Windows
+      # development machine.
+      - name: Install ffmpeg, exiftool and the WeasyPrint system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg libimage-exiftool-perl \
+            libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libffi8 \
+            fonts-dejavu-core
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5

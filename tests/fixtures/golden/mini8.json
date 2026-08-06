@@ -1,0 +1,40 @@
+[
+  {
+    "sheet": 1,
+    "side": "front",
+    "panels": [
+      {
+        "page": 5,
+        "rotated": true
+      },
+      {
+        "page": 4,
+        "rotated": true
+      },
+      {
+        "page": 3,
+        "rotated": true
+      },
+      {
+        "page": 2,
+        "rotated": true
+      },
+      {
+        "page": 6,
+        "rotated": false
+      },
+      {
+        "page": 7,
+        "rotated": false
+      },
+      {
+        "page": 8,
+        "rotated": false
+      },
+      {
+        "page": 1,
+        "rotated": false
+      }
+    ]
+  }
+]

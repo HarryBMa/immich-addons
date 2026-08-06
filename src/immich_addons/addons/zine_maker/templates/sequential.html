@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ config.title or config.topic or "Zine" }}</title>
+  {% include "_style.html" %}
+  <style>
+    @page { size: {{ page_w }}mm {{ page_h }}mm; margin: 0; }
+    .page { width: {{ page_w }}mm; height: {{ page_h }}mm; page-break-after: always; position: relative; }
+    .page:last-child { page-break-after: auto; }
+  </style>
+</head>
+<body>
+  {% for page in pages %}
+  <section class="page">
+    <div class="page-body">{% include "_page.html" %}</div>
+  </section>
+  {% endfor %}
+</body>
+</html>

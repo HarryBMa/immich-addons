@@ -1,0 +1,46 @@
+{# Print CSS shared by both PDFs. Sizes are millimetres so WeasyPrint lays out at true scale;
+   images are `object-fit: cover`, which is what makes crop_loss() in layout.py meaningful. #}
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "DejaVu Sans", sans-serif; color: #14161a; }
+
+  .page-body { width: 100%; height: 100%; overflow: hidden; background: #fff; }
+
+  .frame { width: 100%; height: 100%; display: flex; gap: 2mm; padding: {{ bleed + 2 }}mm; }
+  .frame.full { padding: 0; }
+  .frame.stack { flex-direction: column; }
+  .frame.row { flex-direction: row; }
+  .frame.grid { flex-wrap: wrap; }
+  .frame.grid figure { width: calc(50% - 1mm); height: calc(50% - 1mm); }
+
+  figure { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+  figure img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  figcaption {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 1.5mm 2mm; font-size: 6pt; letter-spacing: .02em;
+    color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.55));
+  }
+
+  .cover { position: relative; width: 100%; height: 100%; }
+  .cover-image { width: 100%; height: 100%; object-fit: cover; filter: saturate(.85); }
+  .cover-text {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 6mm 5mm 7mm;
+    color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.68));
+  }
+  .cover-text h1 { font-size: 15pt; font-weight: 700; line-height: 1.15; }
+  .cover-text p { font-size: 7pt; margin-top: 1.5mm; opacity: .85; }
+
+  .colophon {
+    width: 100%; height: 100%; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2mm; padding: 6mm; text-align: center;
+  }
+  .colophon h2 { font-size: 9pt; font-weight: 600; }
+  .colophon p { font-size: 6.5pt; color: #5e636c; }
+
+  {% if bleed %}
+  .marks { position: absolute; inset: 0; pointer-events: none; }
+  .marks::before, .marks::after {
+    content: ""; position: absolute; background: #000;
+  }
+  {% endif %}
+</style>

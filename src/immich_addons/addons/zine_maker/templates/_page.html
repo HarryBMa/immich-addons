@@ -1,0 +1,40 @@
+{# One page's contents. Shared by the sequential and imposed renderings so the two can never
+   disagree about what a page looks like. #}
+{% if page.template == 'cover' %}
+  <div class="cover">
+    {% if page.photos %}<img class="cover-image" src="{{ page.photos[0].data_uri }}" alt="">{% endif %}
+    <div class="cover-text">
+      <h1>{{ page.title }}</h1>
+      {% if page.subtitle %}<p>{{ page.subtitle }}</p>{% endif %}
+    </div>
+  </div>
+{% elif page.template == 'colophon' %}
+  <div class="colophon">
+    <h2>{{ page.title }}</h2>
+    <p>{{ page.subtitle }}</p>
+  </div>
+{% elif page.template == 'full-bleed' %}
+  <div class="frame full">
+    {% for photo in page.photos %}
+    <figure><img src="{{ photo.data_uri }}" alt="">{% if photo.caption %}<figcaption>{{ photo.caption }}</figcaption>{% endif %}</figure>
+    {% endfor %}
+  </div>
+{% elif page.template == 'two-up-vertical' %}
+  <div class="frame stack">
+    {% for photo in page.photos %}
+    <figure><img src="{{ photo.data_uri }}" alt="">{% if photo.caption %}<figcaption>{{ photo.caption }}</figcaption>{% endif %}</figure>
+    {% endfor %}
+  </div>
+{% elif page.template == 'two-up-horizontal' %}
+  <div class="frame row">
+    {% for photo in page.photos %}
+    <figure><img src="{{ photo.data_uri }}" alt="">{% if photo.caption %}<figcaption>{{ photo.caption }}</figcaption>{% endif %}</figure>
+    {% endfor %}
+  </div>
+{% elif page.template == 'four-grid' %}
+  <div class="frame grid">
+    {% for photo in page.photos %}
+    <figure><img src="{{ photo.data_uri }}" alt=""></figure>
+    {% endfor %}
+  </div>
+{% endif %}
