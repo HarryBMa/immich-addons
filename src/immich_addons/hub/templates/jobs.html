@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Jobs{% endblock %}
+
+{% block content %}
+<div class="head">
+  <div>
+    <h1>Jobs</h1>
+    <p class="dim">Every run the hub has performed, with its log and anything it produced.</p>
+  </div>
+  <div class="head-actions"><span class="pill" id="poll-state">live</span></div>
+</div>
+
+<div id="jobs" data-poll="/jobs/fragment" data-interval="2000">
+  {% include "_jobs_table.html" %}
+</div>
+
+<script src="/static/app.js"></script>
+{% endblock %}

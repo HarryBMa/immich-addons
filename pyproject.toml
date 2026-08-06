@@ -8,19 +8,32 @@ license = { file = "LICENSE" }
 authors = [{ name = "Harry Malmgren" }]
 
 dependencies = [
+    "fastapi>=0.111",
     "httpx>=0.27",
+    "itsdangerous>=2.2",
+    "jinja2>=3.1",
     "numpy>=1.26",
     "psycopg[binary]>=3.1",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
+    "python-multipart>=0.0.9",
+    "uvicorn[standard]>=0.30",
 ]
 
-# Addons are discovered through this entry-point group (see CLAUDE.md).
-# Phase 2 registers the four first-party addons here; Phase 0 ships none.
+[project.scripts]
+immich-addons-hub = "immich_addons.hub.app:main"
+
+# Addons are discovered through this entry-point group (see CLAUDE.md). A third-party package can
+# add to this group without this repo knowing about it; registry/index.json is the catalog.
 [project.entry-points."immich_addons.addons"]
+auto-lut = "immich_addons.addons.auto_lut:AutoLut"
+trip-best-picks = "immich_addons.addons.trip_best_picks:TripBestPicks"
+zine-maker = "immich_addons.addons.zine_maker:ZineMaker"
+year-highlights = "immich_addons.addons.year_highlights:YearHighlights"
 
 [dependency-groups]
 dev = [
+    "pillow>=10.3",
     "pytest>=8.2",
     "ruff>=0.5",
 ]

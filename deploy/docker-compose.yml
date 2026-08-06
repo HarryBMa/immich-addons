@@ -1,0 +1,46 @@
+# Production hub: joins the existing Immich network, never redefines Immich itself.
+#
+#   docker compose --env-file ../.env up -d
+#
+# Before the first run, read docs/production.md: the API key wants the narrowest permission set,
+# the database user must be the read-only addons_ro role, and every addon starts in dry run.
+
+name: immich-addons
+
+services:
+  addons-hub:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: immich-addons-hub:latest
+    container_name: addons-hub
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATA_DIR: /data
+    ports:
+      # Bind to the LAN/Tailscale interface only. Never publish this to the internet.
+      - "${HUB_BIND:-127.0.0.1}:${HUB_PORT:-8484}:8484"
+    volumes:
+      - hub-data:/data
+    devices:
+      # Quick Sync for ffmpeg. Remove this line on a host without an Intel iGPU; the hub falls
+      # back to libx264 on its own.
+      - /dev/dri:/dev/dri
+    networks:
+      - immich
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8484/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  hub-data:
+
+networks:
+  immich:
+    external: true
+    # The network Immich's own compose stack created. Check with:
+    #   docker network ls | grep immich
+    name: ${IMMICH_NETWORK:-immich_default}

@@ -15,4 +15,6 @@ def test_package_imports() -> None:
 def test_registry_index_is_valid() -> None:
     index = json.loads((REPO_ROOT / "registry" / "index.json").read_text(encoding="utf-8"))
     assert index["registry_version"] == 1
-    assert index["addons"] == []
+    assert isinstance(index["addons"], list)
+    for row in index["addons"]:
+        assert {"id", "name", "version", "description", "entrypoint", "capabilities"} <= row.keys()
