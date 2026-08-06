@@ -15,8 +15,9 @@ First-party addons:
 
 ## Status
 
-Phase 0 — scaffold. No features implemented yet. See [PLAN.md](PLAN.md) for the phase plan and
-[CLAUDE.md](CLAUDE.md) for the standing rules.
+Phase 1 — the shared core library (Immich client, read-only embedding reader, job queue, ffmpeg
+wrappers) and `scripts/probe.py`. No addons implemented yet. See [PLAN.md](PLAN.md) for the phase
+plan and [CLAUDE.md](CLAUDE.md) for the standing rules.
 
 ## Development
 
@@ -28,6 +29,17 @@ uv run pytest           # tests
 ```
 
 Copy `.env.example` to `.env` and fill it in before running anything that talks to Immich.
+
+Then check this repo's assumptions against your actual server — endpoint names and the CLIP
+embedding table are discovered, never hardcoded from documentation:
+
+```sh
+uv run python scripts/probe.py           # version, OpenAPI snapshot, endpoints, key perms, DB
+uv run python scripts/probe.py --no-db   # skip the Postgres checks
+```
+
+Exit code 0 means every check passed. Rerun it after every Immich upgrade and commit the resulting
+snapshot under [`contracts/`](contracts/).
 
 ## Licence
 
