@@ -167,18 +167,27 @@ def test_running_an_addon_creates_a_visible_job(client: TestClient, app) -> None
     assert client.get(f"/jobs/{job_id}").status_code == 200
 
 
-def test_an_unimplemented_addon_fails_cleanly_and_says_where_it_lands(
-    client: TestClient,
-    app,  # noqa: ANN001
-) -> None:
-    """Stub addons must fail with a readable reason, not a bare traceback."""
-    job_id = client.post("/api/run/year-highlights", json={"dry_run": True}).json()["job_id"]
+def test_a_failing_addon_shows_its_reason_in_the_ui(client: TestClient, app) -> None:  # noqa: ANN001
+    """A failed run must be explainable from the job page, not just a red status.
+
+    Uses a deliberately failing runner rather than whichever addon happens to be unfinished, so
+    the test does not need rewriting as the addons land.
+    """
+    from immich_addons.addons.base import AddonError
+
+    def explode(ctx) -> None:  # noqa: ANN001
+        ctx.log("about to fail on purpose")
+        raise AddonError("the LUT directory is empty")
+
+    app.state.jobs.register("auto-lut", explode)
+    job_id = client.post("/api/run/auto-lut", json={}).json()["job_id"]
     job = _await_terminal(app.state.jobs, job_id)
 
     assert job is not None
     assert job.status is JobStatus.FAILED
-    assert "Phase 6" in job.log
-    assert "NotImplementedError" in job.log
+    assert "the LUT directory is empty" in job.log
+    assert "about to fail on purpose" in job.log
+    assert "the LUT directory is empty" in client.get(f"/jobs/{job_id}").text
 
 
 def test_jobs_fragment_is_pollable(client: TestClient) -> None:
