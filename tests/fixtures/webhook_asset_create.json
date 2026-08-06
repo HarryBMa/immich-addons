@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "SYNTHETIC placeholder, not an observed payload. Immich Workflows is a preview feature and",
+    "this repo has not yet been pointed at a running v3 server, so the real shape is unverified.",
+    "PLAN.md Phase 3 asks for a payload captured from a real dev-instance workflow: replace this",
+    "file with that capture, keep the test that parses it, and delete this comment.",
+    "The parser in addons/auto_lut is written to accept several shapes precisely because this one",
+    "is a guess."
+  ],
+  "event": "AssetCreate",
+  "workflowId": "6f6a1c2e-3f1a-4a2b-9a11-2f5b7c9d0e11",
+  "triggeredAt": "2026-08-06T09:41:22.184Z",
+  "data": {
+    "asset": {
+      "id": "5b6b0e6c-6d5e-4a6f-9a2c-7f1e2d3c4b5a",
+      "type": "IMAGE",
+      "originalFileName": "DSC07421.JPG",
+      "originalPath": "upload/library/admin/2026/2026-08-06/DSC07421.JPG",
+      "fileCreatedAt": "2026-08-06T09:40:58.000Z",
+      "ownerId": "9c8b7a65-4d3e-2f1a-8b7c-6d5e4f3a2b1c",
+      "checksum": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c",
+      "exifInfo": {
+        "make": "SONY",
+        "model": "ILCE-6400",
+        "exifImageWidth": 6000,
+        "exifImageHeight": 4000
+      },
+      "tags": []
+    }
+  }
+}

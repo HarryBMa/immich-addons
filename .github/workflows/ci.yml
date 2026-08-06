@@ -10,6 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # tests/test_lut_render.py applies the shipped LUTs for real and measures the result; it
+      # skips without ffmpeg, and silently skipping an acceptance test is worse than not having it.
+      - name: Install ffmpeg and exiftool
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg libimage-exiftool-perl
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:

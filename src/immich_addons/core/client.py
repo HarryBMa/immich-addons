@@ -59,6 +59,7 @@ ENDPOINTS: dict[str, Endpoint] = {
     "asset_thumbnail": Endpoint("GET", "/api/assets/{asset_id}/thumbnail"),
     "people": Endpoint("GET", "/api/people"),
     "albums": Endpoint("GET", "/api/albums"),
+    "album_info": Endpoint("GET", "/api/albums/{album_id}"),
     "tags": Endpoint("GET", "/api/tags"),
     # --- write (additive only) ----------------------------------------------------------
     "asset_upload": Endpoint("POST", "/api/assets", writes=True),
@@ -261,6 +262,10 @@ class ImmichClient:
 
     def albums(self) -> list[dict[str, Any]]:
         return list(self._json(self._request("albums")))
+
+    def album_info(self, album_id: str) -> dict[str, Any]:
+        """One album including its assets — used to test scope membership."""
+        return self._json(self._request("album_info", path_params={"album_id": album_id}))
 
     def tags(self) -> list[dict[str, Any]]:
         return list(self._json(self._request("tags")))

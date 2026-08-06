@@ -147,6 +147,32 @@ def media_info(path: Path) -> MediaInfo:
     )
 
 
+def copy_exif(src: Path, dest: Path) -> bool:
+    """Copy every tag from ``src`` onto ``dest`` with exiftool, preserving capture date and GPS.
+
+    ffmpeg drops most metadata, so without this the graded copy would land in Immich dated "now"
+    and with no location — it would not even sort next to its original. Returns False (with a
+    warning) when exiftool is unavailable, because a graded copy with poor metadata still beats
+    failing the whole job.
+    """
+    exiftool = shutil.which("exiftool")
+    if not exiftool:
+        log.warning("exiftool not found — the graded copy keeps only what ffmpeg preserved")
+        return False
+    run(
+        [
+            exiftool,
+            "-TagsFromFile",
+            str(src),
+            "-all:all",
+            "-overwrite_original",
+            "-preserve",
+            str(dest),
+        ]
+    )
+    return True
+
+
 def apply_lut(
     src: Path,
     dest: Path,
