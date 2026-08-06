@@ -1,0 +1,28 @@
+# secrets — .env.example is committed, .env never is
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# runtime data (hub writes here: luts/, music/, output/, cache/, jobs.sqlite)
+data/
+*.sqlite
+*.sqlite-journal
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
