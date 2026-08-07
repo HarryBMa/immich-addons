@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import httpx
 import numpy as np
 import pytest
 
+from immich_addons.addons.base import AddonError
 from immich_addons.addons.zine_maker.addon import (
     PAGE_SIZES,
     Photo,
@@ -318,6 +320,81 @@ def test_pdf_output(settings, zine_stack, monkeypatch, tmp_path: Path) -> None: 
     for path in files:
         assert path.exists()
         assert path.read_bytes().startswith(b"%PDF")
+
+
+HAVE_POPPLER = shutil.which("pdftoppm") is not None
+
+
+@pytest.mark.skipif(not (HAVE_WEASYPRINT and HAVE_POPPLER), reason="needs WeasyPrint and poppler")
+def test_page_images_are_rasterised_one_per_page(settings, zine_stack, monkeypatch) -> None:  # noqa: ANN001
+    """`upload_pages` was a switch that logged 'not implemented' until Phase 7."""
+    from immich_addons.addons.zine_maker.addon import page_images
+
+    transport, module = zine_stack
+    settings.ensure_data_dirs()
+    config = ZineMakerConfig(title="Gotland", topic="beach", layout="mini8", dry_run=True)
+    monkeypatch.setattr(
+        module,
+        "ImmichClient",
+        lambda s, dry_run=False: ImmichClient(s, dry_run=dry_run, transport=transport),
+    )
+    pages = _paginate(settings, config, transport, module, monkeypatch)
+    sequential, _ = ZineMaker(settings)._render(_NullCtx(), config, pages)
+
+    images = page_images(sequential, settings.output_dir / "pages", dpi=50)
+
+    assert len(images) == config.pages
+    assert all(image.read_bytes().startswith(b"\xff\xd8") for image in images), "JPEG magic"
+
+
+def test_missing_poppler_is_a_readable_failure(settings, monkeypatch, tmp_path: Path) -> None:  # noqa: ANN001
+    from immich_addons.addons.zine_maker import addon as module
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    with pytest.raises(AddonError, match="poppler-utils"):
+        module.page_images(tmp_path / "x.pdf", tmp_path)
+
+
+def test_a_dry_run_says_what_it_would_upload(
+    settings, zine_stack, monkeypatch, tmp_path: Path
+) -> None:  # noqa: ANN001, E501
+    """Dry run must still rasterise and report — that is what makes it a rehearsal."""
+    transport, module = zine_stack
+    settings.ensure_data_dirs()
+    monkeypatch.setattr(
+        module, "page_images", lambda pdf, out, **kw: [_fake_page(out, i) for i in (1, 2)]
+    )
+    monkeypatch.setattr(module, "_write_pdf", lambda html, dest: dest.write_bytes(b"%PDF-1.7\n"))
+    monkeypatch.setattr(
+        module,
+        "ImmichClient",
+        lambda s, dry_run=False: ImmichClient(s, dry_run=dry_run, transport=transport),
+    )
+    config = ZineMakerConfig(topic="beach", upload_pages=True, dry_run=True)
+    jobs = JobQueue(tmp_path / "j.sqlite")
+    addon = ZineMaker(settings)
+    jobs.register("zine-maker", lambda ctx: addon.run(ctx, config))
+    jobs.run_job(jobs.enqueue("zine-maker", {}))
+
+    job = jobs.get(1)
+    assert job is not None and job.status is JobStatus.DONE, job.log
+    assert "would upload 2 page image(s)" in job.log
+    assert not [a for a in job.artifacts if a["kind"] == "album"], "no album in a dry run"
+
+
+def _fake_page(out_dir: Path, number: int) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"page-{number}.jpg"
+    path.write_bytes(b"\xff\xd8fake")
+    return path
+
+
+class _NullCtx:
+    params: dict = {}
+
+    def progress(self, *a: object, **k: object) -> None: ...
+    def log(self, *a: object, **k: object) -> None: ...
+    def artifact(self, *a: object, **k: object) -> None: ...
 
 
 def test_a_missing_pdf_engine_fails_with_a_readable_message(

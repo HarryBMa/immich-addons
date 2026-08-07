@@ -21,7 +21,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             ffmpeg libimage-exiftool-perl \
             libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libffi8 \
-            fonts-dejavu-core
+            fonts-dejavu-core poppler-utils
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
