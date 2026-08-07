@@ -89,14 +89,51 @@ def ffmpeg_encoders() -> frozenset[str]:
     return frozenset(names)
 
 
+def qsv_encodes_a_frame() -> bool:
+    """Actually encode one frame with QSV and report whether it worked.
+
+    Presence is not capability. A machine can have ``/dev/dri`` and an ffmpeg built with
+    ``h264_qsv`` and still fail every encode with ``Error creating a MFX session`` — no Intel GPU
+    behind the device node, a driver mismatch, a VM passing through something that is not Quick
+    Sync. The only honest test is to try it, and one 320x240 frame to ``null`` is cheap enough to
+    do once per process.
+    """
+    args = [
+        _tool("ffmpeg"),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=320x240:r=10:d=0.1",
+        "-frames:v",
+        "1",
+        "-c:v",
+        QSV_ENCODER,
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        run(args, timeout=30)
+    except (MediaError, MediaToolMissingError, subprocess.TimeoutExpired) as exc:
+        log.info("%s is present but cannot encode (%s)", QSV_ENCODER, str(exc).splitlines()[0])
+        return False
+    return True
+
+
 @lru_cache(maxsize=1)
 def has_qsv() -> bool:
-    """True when Quick Sync is both present on the host and built into ffmpeg."""
+    """True when Quick Sync is present, built into ffmpeg, **and** demonstrably works."""
     if not QSV_DEVICE.exists():
         log.info("%s missing — no QSV, falling back to %s", QSV_DEVICE, SOFTWARE_ENCODER)
         return False
     if QSV_ENCODER not in ffmpeg_encoders():
         log.info("ffmpeg has no %s encoder — falling back to %s", QSV_ENCODER, SOFTWARE_ENCODER)
+        return False
+    if not qsv_encodes_a_frame():
+        log.info("falling back to %s", SOFTWARE_ENCODER)
         return False
     return True
 
