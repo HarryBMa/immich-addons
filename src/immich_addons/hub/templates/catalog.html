@@ -43,6 +43,8 @@
       {% if not entry.installed %}<span>·</span><span class="warn">{{ entry.status }}</span>{% endif %}
     </div>
 
+    {% if card.next_run %}<div class="meta mono"><span>next run {{ card.next_run }}</span></div>{% endif %}
+
     <div class="card-actions">
       <a class="btn" href="/addons/{{ entry.id }}">Configure</a>
       {% if entry.installed %}

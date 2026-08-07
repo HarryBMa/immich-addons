@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -212,6 +213,58 @@ def test_running_an_uninstalled_addon_is_a_409(hub_settings: Settings, tmp_path:
     with TestClient(create_app(hub_settings, registry_path=registry)) as client:
         client.post("/login", data={"password": "hunter2"})
         assert client.post("/api/run/ghost", json={}).status_code == 409
+
+
+# --- schedule -----------------------------------------------------------------------------
+
+
+def test_the_schedule_panel_only_shows_for_schedulable_addons(client: TestClient) -> None:
+    assert 'name="cron"' in client.get("/addons/year-highlights").text
+    assert 'name="cron"' not in client.get("/addons/zine-maker").text, "manual only"
+
+
+def test_saving_a_schedule_shows_the_next_run(client: TestClient, app) -> None:  # noqa: ANN001
+    """PLAN.md Phase 7 acceptance: a schedule can be set and the hub says when it will fire."""
+    response = client.post("/addons/year-highlights/schedule", data={"cron": "0 3 1 1 *"})
+    assert response.status_code == 200  # redirected to the addon page
+
+    html = client.get("/addons/year-highlights").text
+    assert "Every 1 January at 03:00" in html
+    assert "-01-01 03:00" in html
+
+    assert app.state.scheduler.read("year-highlights").cron == "0 3 1 1 *"
+
+
+def test_a_bad_cron_is_reported_on_the_form(client: TestClient, app) -> None:  # noqa: ANN001
+    response = client.post("/addons/auto-lut/schedule", data={"cron": "*/5 * * *"})
+    assert response.status_code == 422
+    assert "expected 5 fields" in response.text
+    assert app.state.scheduler.read("auto-lut").cron == "", "nothing was stored"
+
+
+def test_scheduling_an_unschedulable_addon_is_a_409(client: TestClient) -> None:
+    response = client.post("/addons/zine-maker/schedule", data={"cron": "0 3 * * *"})
+    assert response.status_code == 409
+
+
+def test_the_catalog_shows_the_next_run_only_once_enabled(client: TestClient) -> None:
+    client.post("/addons/year-highlights/schedule", data={"cron": "0 3 * * *"})
+    assert "next run" not in client.get("/").text, "a disabled addon will not fire"
+
+    client.post("/addons/year-highlights/enabled", data={"enabled": "on"})
+    assert "next run" in client.get("/").text
+
+
+def test_a_scheduled_run_reaches_the_job_queue(client: TestClient, app) -> None:  # noqa: ANN001
+    """The whole path: form -> store -> scheduler tick -> a job on the /jobs page."""
+    client.post("/addons/auto-lut/enabled", data={"enabled": "on"})
+    client.post("/addons/auto-lut/schedule", data={"cron": "*/5 * * * *"})
+
+    scheduler = app.state.scheduler
+    fired = scheduler.tick(scheduler.now() + timedelta(minutes=10))
+
+    assert len(fired) == 1
+    assert client.get(f"/jobs/{fired[0]}").status_code == 200
 
 
 # --- webhook ------------------------------------------------------------------------------

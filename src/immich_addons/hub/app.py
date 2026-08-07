@@ -36,6 +36,7 @@ from immich_addons.core.config import Settings, get_settings
 from immich_addons.core.jobs import JobContext, JobQueue
 from immich_addons.hub.forms import form_to_dict, schema_to_fields
 from immich_addons.hub.registry import AddonStore, CatalogEntry, build_catalog
+from immich_addons.hub.schedule import PRESETS, CronError, Scheduler, describe
 
 log = logging.getLogger(__name__)
 
@@ -99,14 +100,17 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
         if entry.addon is not None:
             jobs.register(entry.id, _runner_for(entry.addon, store))
     limiter = RateLimiter()
+    scheduler = Scheduler(catalog, store, jobs, tz_name=settings.hub_timezone)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # noqa: ANN202 - fastapi lifespan
         jobs.sweep_interrupted()
         jobs.start()
+        scheduler.start()
         try:
             yield
         finally:
+            scheduler.stop()
             jobs.stop()
 
     app = FastAPI(title="Immich Addons", lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -115,6 +119,7 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
     app.state.store = store
     app.state.catalog = catalog
     app.state.limiter = limiter
+    app.state.scheduler = scheduler
 
     app.add_middleware(
         SessionMiddleware,
@@ -178,6 +183,14 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
 
     # --- catalog ------------------------------------------------------------------------
 
+    def _next_run_label(addon_id: str) -> str:
+        """Only shown for addons the store has enabled — a schedule on a disabled addon does not
+        fire, and a card promising a run that will not happen is worse than a blank."""
+        if not store.is_enabled(addon_id):
+            return ""
+        when = scheduler.next_run(addon_id)
+        return when.strftime("%Y-%m-%d %H:%M") if when else ""
+
     def _entry(addon_id: str) -> CatalogEntry:
         for entry in catalog:
             if entry.id == addon_id:
@@ -191,6 +204,7 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
                 "entry": entry,
                 "enabled": store.is_enabled(entry.id),
                 "configured": bool(store.config(entry.id)),
+                "next_run": _next_run_label(entry.id),
             }
             for entry in catalog
         ]
@@ -212,6 +226,23 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
         store.set_enabled(addon_id, enabled == "on")
         return RedirectResponse("/", status_code=303)
 
+    def _schedule_context(entry: CatalogEntry, *, error: str = "") -> dict[str, Any]:
+        """Everything the schedule panel needs, or ``schedulable: False`` if the addon has no
+        ``schedule``/``poll`` capability and the panel should not render at all."""
+        if entry.id not in scheduler.scheduled_ids():
+            return {"schedulable": False}
+        state = scheduler.read(entry.id)
+        next_run = scheduler.next_run(entry.id)
+        return {
+            "schedulable": True,
+            "cron": state.cron,
+            "cron_label": describe(state.cron) if state.cron else "",
+            "cron_error": error,
+            "presets": PRESETS,
+            "next_run": next_run.strftime("%Y-%m-%d %H:%M") if next_run else "",
+            "timezone": settings.hub_timezone or "server local time",
+        }
+
     @app.get(
         "/addons/{addon_id}",
         response_class=HTMLResponse,
@@ -231,8 +262,52 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
                 "errors": [],
                 "saved": False,
                 "pickers": _picker_values(settings),
+                "schedule": _schedule_context(entry),
                 "embedded": request.query_params.get("embedded") == "1",
             },
+        )
+
+    @app.post(
+        "/addons/{addon_id}/schedule",
+        response_class=HTMLResponse,
+        dependencies=[Depends(require_login)],
+    )
+    async def save_schedule(
+        request: Request, addon_id: str, cron: str = Form(default="")
+    ) -> Response:
+        """Set or clear a schedule. An unparseable expression re-renders the page with the field
+        named, rather than redirecting and losing what was typed."""
+        entry = _entry(addon_id)
+        if entry.id not in scheduler.scheduled_ids():
+            raise HTTPException(status_code=409, detail="this addon cannot be scheduled")
+        try:
+            scheduler.save(addon_id, cron)
+        except CronError as exc:
+            return _render_addon(request, entry, schedule_error=str(exc), status_code=422)
+        return RedirectResponse(f"/addons/{addon_id}", status_code=303)
+
+    def _render_addon(
+        request: Request,
+        entry: CatalogEntry,
+        *,
+        schedule_error: str = "",
+        status_code: int = 200,
+    ) -> Response:
+        saved = {**entry.default_config(), **store.config(entry.id)}
+        return templates.TemplateResponse(
+            request,
+            "addon.html",
+            {
+                "entry": entry,
+                "fields": schema_to_fields(entry.config_schema(), saved),
+                "enabled": store.is_enabled(entry.id),
+                "errors": [],
+                "saved": False,
+                "pickers": _picker_values(settings),
+                "schedule": _schedule_context(entry, error=schedule_error),
+                "embedded": request.query_params.get("embedded") == "1",
+            },
+            status_code=status_code,
         )
 
     @app.post(
@@ -266,6 +341,7 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
                 "errors": errors,
                 "saved": not errors,
                 "pickers": _picker_values(settings),
+                "schedule": _schedule_context(entry),
                 "embedded": request.query_params.get("embedded") == "1",
             },
             status_code=422 if errors else 200,

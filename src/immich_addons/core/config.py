@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     hub_password: str = ""
     hub_webhook_token: str = ""
     embed_origin: str = ""
+    #: IANA name the scheduler reads cron expressions in. Empty means the machine's local time,
+    #: which inside a container is usually UTC — set it if "1 January at 03:00" should mean *your*
+    #: 1 January.
+    hub_timezone: str = ""
 
     data_dir: Path = Path("/data")
     trigger_mode: TriggerMode = "webhook"
