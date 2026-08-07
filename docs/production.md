@@ -96,7 +96,9 @@ for the open internet and should not be there.
 - Behind a reverse proxy (Traefik, Caddy, nginx), keep it on an internal router. If TLS terminates
   at the proxy, the hub's `https_only=False` session cookie is fine; if you ever expose it beyond
   a trusted network, that assumption stops holding.
-- `EMBED_ORIGIN` — only needed for the Phase 8 Immich-side integration. Leave it empty otherwise.
+- `EMBED_ORIGIN` — the origin of your Immich web UI, and only if you want the hub embedded in it.
+  It decides who may call `/api/inbox`, who CORS permits, and who may frame the hub; empty means
+  nobody, on all three counts. See [embedding.md](embedding.md).
 
 ## 5. Dry-run first — the actual checklist
 

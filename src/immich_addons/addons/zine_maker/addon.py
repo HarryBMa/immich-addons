@@ -60,6 +60,12 @@ class ZineMakerConfig(AddonConfig):
         description='Free-text search, e.g. "kids at the beach". Ignored when an album is chosen.',
     )
     album_id: str = Field(default="", title="Album", json_schema_extra={"x-picker": "albums"})
+    asset_ids: list[str] = Field(
+        default_factory=list,
+        title="Selected photos",
+        description="Filled in when you arrive from Immich's 'Send to Addons'. Wins over both.",
+        json_schema_extra={"x-widget": "selection"},
+    )
     pages: int = Field(default=8, title="Pages", json_schema_extra={"enum": [8, 16]})
     page_orientation: str = Field(
         default="portrait",
@@ -102,7 +108,7 @@ class ZineMakerConfig(AddonConfig):
             raise ValueError("page_orientation must be portrait or landscape")
         if self.pages not in {8, 16}:
             raise ValueError("pages must be 8 or 16")
-        if not self.topic and not self.album_id:
+        if not self.topic and not self.album_id and not self.asset_ids:
             raise ValueError("give either a topic or an album")
         if self.layout == "mini8" and self.pages != 8:
             raise ValueError("the mini8 format is exactly 8 pages")
@@ -244,7 +250,10 @@ class ZineMaker(Addon):
 
     def _candidates(self, client: ImmichClient, config: ZineMakerConfig) -> list[dict[str, Any]]:
         wanted = photos_needed(config.pages)
-        if config.album_id:
+        if config.asset_ids:
+            # An explicit selection beats a search: you picked these on purpose.
+            assets = [client.asset_info(asset_id) for asset_id in config.asset_ids]
+        elif config.album_id:
             album = client.album_info(config.album_id)
             assets = [a for a in album.get("assets", []) if isinstance(a, dict)]
         else:

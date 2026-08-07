@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -37,6 +38,7 @@ from immich_addons.core.jobs import JobContext, JobQueue
 from immich_addons.hub.forms import form_to_dict, schema_to_fields
 from immich_addons.hub.registry import AddonStore, CatalogEntry, build_catalog
 from immich_addons.hub.schedule import PRESETS, CronError, Scheduler, describe
+from immich_addons.hub.selections import SelectionError, SelectionStore
 
 log = logging.getLogger(__name__)
 
@@ -101,6 +103,7 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
             jobs.register(entry.id, _runner_for(entry.addon, store))
     limiter = RateLimiter()
     scheduler = Scheduler(catalog, store, jobs, tz_name=settings.hub_timezone)
+    selections = SelectionStore(settings.data_dir / "selections.sqlite")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # noqa: ANN202 - fastapi lifespan
@@ -120,6 +123,7 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
     app.state.catalog = catalog
     app.state.limiter = limiter
     app.state.scheduler = scheduler
+    app.state.selections = selections
 
     app.add_middleware(
         SessionMiddleware,
@@ -127,6 +131,30 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
         same_site="lax",
         https_only=False,  # LAN/Tailscale only; Traefik terminates TLS in front when used
     )
+    if settings.embed_origin:
+        # Exactly one origin, and only the inbox. Immich's page is cross-origin to the hub, so the
+        # session cookie is not sent with this request — see the note on the route itself.
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[settings.embed_origin],
+            allow_methods=["POST", "OPTIONS"],
+            allow_headers=["content-type"],
+            max_age=600,
+        )
+
+    @app.middleware("http")
+    async def _framing(request: Request, call_next):  # noqa: ANN001, ANN202
+        """Say who may frame the hub.
+
+        A CSP ``frame-ancestors`` rather than ``X-Frame-Options: DENY``: the older header cannot
+        express "this one origin", and sending DENY would break the embed the whole phase is for.
+        With no ``EMBED_ORIGIN`` configured the answer is nobody.
+        """
+        response = await call_next(request)
+        allowed = settings.embed_origin or "'none'"
+        response.headers["Content-Security-Policy"] = f"frame-ancestors {allowed}"
+        return response
+
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -389,6 +417,54 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
             raise HTTPException(status_code=404, detail=f"no job {job_id}")
         jobs.cancel(job_id)
         return JSONResponse({"cancelled": job_id})
+
+    # --- selection handover (Phase 8a) --------------------------------------------------
+
+    @app.post("/api/inbox")
+    async def inbox(request: Request) -> JSONResponse:
+        """Accept a selection of asset IDs from Immich's web UI and return an opaque token.
+
+        Deliberately **not** session-authenticated. The call is cross-origin from Immich's page,
+        where the hub's SameSite=lax cookie is not sent, so requiring a session would only mean it
+        never works. What guards it instead: the CORS allowlist is exactly ``EMBED_ORIGIN``, the
+        rate limiter applies, the body is capped, and the token this returns is worthless without a
+        logged-in hub session to exchange it. Nothing here reads or reveals anything.
+        """
+        if not settings.embed_origin:
+            raise HTTPException(status_code=503, detail="EMBED_ORIGIN is not configured")
+
+        origin = request.headers.get("origin", "")
+        if origin and origin.rstrip("/") != settings.embed_origin:
+            log.warning("rejected an inbox post from an unexpected origin")
+            raise HTTPException(status_code=403, detail="origin not allowed")
+
+        client = request.client.host if request.client else "unknown"
+        if not limiter.allow(f"inbox:{client}"):
+            raise HTTPException(status_code=429, detail="too many inbox requests")
+
+        payload = await _json_or_form(request)
+        raw = payload.get("asset_ids") or payload.get("assetIds") or []
+        if not isinstance(raw, list):
+            raise HTTPException(status_code=422, detail="asset_ids must be a list")
+
+        try:
+            selection = selections.create([str(a) for a in raw])
+        except SelectionError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        # The token and the count, never the IDs.
+        return JSONResponse(
+            {"token": selection.token, "count": selection.count, "ttl_s": int(selections.ttl_s)},
+            status_code=201,
+        )
+
+    @app.get("/api/selection/{token}", dependencies=[Depends(require_login)])
+    async def read_selection(token: str) -> JSONResponse:
+        """Exchange a token for its asset IDs. Requires a hub session; this is the read side."""
+        selection = selections.resolve(token)
+        if selection is None:
+            raise HTTPException(status_code=404, detail="that selection has expired")
+        return JSONResponse({"asset_ids": list(selection.asset_ids), "count": selection.count})
 
     # --- webhook ------------------------------------------------------------------------
 

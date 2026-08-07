@@ -12,6 +12,9 @@
   </div>
 </div>
 
+{# Filled in by app.js when we arrive from Immich with #sel=<token>. #}
+<p class="banner ok" data-selection-banner hidden></p>
+
 {% if unlocked %}
 <p class="banner warn">HUB_PASSWORD is not set, so this hub has no login. Set one before exposing it beyond localhost.</p>
 {% endif %}
