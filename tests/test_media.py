@@ -63,13 +63,58 @@ def test_encoder_list_is_parsed(fake_run: list[list[str]]) -> None:
     assert {"h264_qsv", "libx264", "aac"} <= media.ffmpeg_encoders()
 
 
-def test_qsv_used_when_device_and_encoder_are_both_present(
+def test_qsv_used_when_it_is_present_and_actually_works(
     fake_run: list[list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(media.Path, "exists", lambda self: True)
     assert media.has_qsv() is True
     assert media.video_encoder() == "h264_qsv"
     assert "-global_quality" in media.encoder_args()
+
+
+def test_qsv_is_proved_by_encoding_a_frame_not_by_a_device_node(
+    fake_run: list[list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A host can have /dev/dri and a QSV-capable ffmpeg and still fail every encode with
+    'Error creating a MFX session' — no Intel GPU behind the node, or a driver mismatch. Presence
+    is not capability, so the probe encodes one frame."""
+    monkeypatch.setattr(media.Path, "exists", lambda self: True)
+    media.has_qsv()
+
+    probe = [call for call in fake_run if "-c:v" in call and media.QSV_ENCODER in call]
+    assert probe, "has_qsv() must try a real encode"
+    assert probe[0][-1] == "-" and "null" in probe[0], "and throw the result away"
+
+
+def test_falls_back_when_qsv_is_present_but_broken(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The CI runner is exactly this case, and so is a NAS with /dev/dri passed to a container
+    that has no working driver."""
+    monkeypatch.setattr(media.Path, "exists", lambda self: True)
+    monkeypatch.setattr(media, "ffmpeg_encoders", lambda: frozenset({"h264_qsv", "libx264"}))
+    monkeypatch.setattr(media, "qsv_encodes_a_frame", lambda: False)
+
+    assert media.has_qsv() is False
+    assert media.video_encoder() == "libx264"
+
+
+def test_a_failing_qsv_probe_is_not_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def explode(args: list[str], **kwargs: object) -> None:
+        raise media.MediaError("ffmpeg exited 171:\nError creating a MFX session: -9.")
+
+    monkeypatch.setattr(media, "_tool", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(media, "run", explode)
+    assert media.qsv_encodes_a_frame() is False
+
+
+def test_a_hanging_qsv_probe_gives_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wedged driver must cost 30 seconds once, not block the first encode forever."""
+
+    def hang(args: list[str], **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(args, 30)
+
+    monkeypatch.setattr(media, "_tool", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(media, "run", hang)
+    assert media.qsv_encodes_a_frame() is False
 
 
 def test_falls_back_to_libx264_without_dev_dri(
