@@ -28,7 +28,11 @@
   <div class="field">
     <label for="f-{{ field.name }}">{{ field.label }}{% if field.required %} <span class="req">*</span>{% endif %}</label>
 
-    {% if field.widget == 'checkbox' %}
+    {% if field.widget == 'selection' %}
+      {# Asset IDs are never typed. They arrive from Immich via #sel=<token> and app.js fills this. #}
+      <input type="hidden" id="f-{{ field.name }}" name="{{ field.name }}" value="{{ field.value_str }}" data-selection-input>
+      <p class="hint" data-selection-count>{% if field.value %}{{ field.value | length }} photo(s) selected{% else %}Nothing sent from Immich yet.{% endif %}</p>
+    {% elif field.widget == 'checkbox' %}
       <input type="checkbox" id="f-{{ field.name }}" name="{{ field.name }}" {% if field.value %}checked{% endif %}>
     {% elif field.widget == 'select' %}
       <select id="f-{{ field.name }}" name="{{ field.name }}">
@@ -68,6 +72,42 @@
     <a class="btn linkish" href="/jobs">Jobs</a>
   </div>
 </form>
+
+{% if schedule.schedulable %}
+<form method="post" action="/addons/{{ entry.id }}/schedule" class="panel">
+  <h2>Schedule</h2>
+  {% if schedule.cron_error %}
+  <p class="banner warn">Not saved. {{ schedule.cron_error }}</p>
+  {% endif %}
+
+  <div class="field">
+    <label for="f-cron">Cron expression</label>
+    <input type="text" id="f-cron" name="cron" value="{{ schedule.cron }}" list="cron-presets"
+           placeholder="minute hour day-of-month month day-of-week">
+    <datalist id="cron-presets">
+      {% for expression, label in schedule.presets %}
+      <option value="{{ expression }}">{{ label }}</option>
+      {% endfor %}
+    </datalist>
+    <p class="hint">
+      Empty means no schedule. Times are read in {{ schedule.timezone }}.
+      {% if schedule.cron_label and schedule.cron_label != schedule.cron %}
+      Currently: {{ schedule.cron_label }}.
+      {% endif %}
+      A scheduled run only fires while the addon is enabled, and is skipped if a previous run of the
+      same addon is still going.
+    </p>
+  </div>
+
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Save schedule</button>
+    <span class="dim">
+      {% if schedule.next_run %}Next run: <span class="mono">{{ schedule.next_run }}</span>
+      {% else %}Not scheduled.{% endif %}
+    </span>
+  </div>
+</form>
+{% endif %}
 
 <script src="/static/app.js"></script>
 {% endblock %}

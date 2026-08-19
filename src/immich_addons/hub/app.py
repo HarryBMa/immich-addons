@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -36,6 +37,8 @@ from immich_addons.core.config import Settings, get_settings
 from immich_addons.core.jobs import JobContext, JobQueue
 from immich_addons.hub.forms import form_to_dict, schema_to_fields
 from immich_addons.hub.registry import AddonStore, CatalogEntry, build_catalog
+from immich_addons.hub.schedule import PRESETS, CronError, Scheduler, describe
+from immich_addons.hub.selections import SelectionError, SelectionStore
 
 log = logging.getLogger(__name__)
 
@@ -99,14 +102,18 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
         if entry.addon is not None:
             jobs.register(entry.id, _runner_for(entry.addon, store))
     limiter = RateLimiter()
+    scheduler = Scheduler(catalog, store, jobs, tz_name=settings.hub_timezone)
+    selections = SelectionStore(settings.data_dir / "selections.sqlite")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # noqa: ANN202 - fastapi lifespan
         jobs.sweep_interrupted()
         jobs.start()
+        scheduler.start()
         try:
             yield
         finally:
+            scheduler.stop()
             jobs.stop()
 
     app = FastAPI(title="Immich Addons", lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -115,6 +122,8 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
     app.state.store = store
     app.state.catalog = catalog
     app.state.limiter = limiter
+    app.state.scheduler = scheduler
+    app.state.selections = selections
 
     app.add_middleware(
         SessionMiddleware,
@@ -122,6 +131,30 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
         same_site="lax",
         https_only=False,  # LAN/Tailscale only; Traefik terminates TLS in front when used
     )
+    if settings.embed_origin:
+        # Exactly one origin, and only the inbox. Immich's page is cross-origin to the hub, so the
+        # session cookie is not sent with this request — see the note on the route itself.
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[settings.embed_origin],
+            allow_methods=["POST", "OPTIONS"],
+            allow_headers=["content-type"],
+            max_age=600,
+        )
+
+    @app.middleware("http")
+    async def _framing(request: Request, call_next):  # noqa: ANN001, ANN202
+        """Say who may frame the hub.
+
+        A CSP ``frame-ancestors`` rather than ``X-Frame-Options: DENY``: the older header cannot
+        express "this one origin", and sending DENY would break the embed the whole phase is for.
+        With no ``EMBED_ORIGIN`` configured the answer is nobody.
+        """
+        response = await call_next(request)
+        allowed = settings.embed_origin or "'none'"
+        response.headers["Content-Security-Policy"] = f"frame-ancestors {allowed}"
+        return response
+
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -178,6 +211,14 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
 
     # --- catalog ------------------------------------------------------------------------
 
+    def _next_run_label(addon_id: str) -> str:
+        """Only shown for addons the store has enabled — a schedule on a disabled addon does not
+        fire, and a card promising a run that will not happen is worse than a blank."""
+        if not store.is_enabled(addon_id):
+            return ""
+        when = scheduler.next_run(addon_id)
+        return when.strftime("%Y-%m-%d %H:%M") if when else ""
+
     def _entry(addon_id: str) -> CatalogEntry:
         for entry in catalog:
             if entry.id == addon_id:
@@ -191,6 +232,7 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
                 "entry": entry,
                 "enabled": store.is_enabled(entry.id),
                 "configured": bool(store.config(entry.id)),
+                "next_run": _next_run_label(entry.id),
             }
             for entry in catalog
         ]
@@ -212,6 +254,23 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
         store.set_enabled(addon_id, enabled == "on")
         return RedirectResponse("/", status_code=303)
 
+    def _schedule_context(entry: CatalogEntry, *, error: str = "") -> dict[str, Any]:
+        """Everything the schedule panel needs, or ``schedulable: False`` if the addon has no
+        ``schedule``/``poll`` capability and the panel should not render at all."""
+        if entry.id not in scheduler.scheduled_ids():
+            return {"schedulable": False}
+        state = scheduler.read(entry.id)
+        next_run = scheduler.next_run(entry.id)
+        return {
+            "schedulable": True,
+            "cron": state.cron,
+            "cron_label": describe(state.cron) if state.cron else "",
+            "cron_error": error,
+            "presets": PRESETS,
+            "next_run": next_run.strftime("%Y-%m-%d %H:%M") if next_run else "",
+            "timezone": settings.hub_timezone or "server local time",
+        }
+
     @app.get(
         "/addons/{addon_id}",
         response_class=HTMLResponse,
@@ -231,8 +290,52 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
                 "errors": [],
                 "saved": False,
                 "pickers": _picker_values(settings),
+                "schedule": _schedule_context(entry),
                 "embedded": request.query_params.get("embedded") == "1",
             },
+        )
+
+    @app.post(
+        "/addons/{addon_id}/schedule",
+        response_class=HTMLResponse,
+        dependencies=[Depends(require_login)],
+    )
+    async def save_schedule(
+        request: Request, addon_id: str, cron: str = Form(default="")
+    ) -> Response:
+        """Set or clear a schedule. An unparseable expression re-renders the page with the field
+        named, rather than redirecting and losing what was typed."""
+        entry = _entry(addon_id)
+        if entry.id not in scheduler.scheduled_ids():
+            raise HTTPException(status_code=409, detail="this addon cannot be scheduled")
+        try:
+            scheduler.save(addon_id, cron)
+        except CronError as exc:
+            return _render_addon(request, entry, schedule_error=str(exc), status_code=422)
+        return RedirectResponse(f"/addons/{addon_id}", status_code=303)
+
+    def _render_addon(
+        request: Request,
+        entry: CatalogEntry,
+        *,
+        schedule_error: str = "",
+        status_code: int = 200,
+    ) -> Response:
+        saved = {**entry.default_config(), **store.config(entry.id)}
+        return templates.TemplateResponse(
+            request,
+            "addon.html",
+            {
+                "entry": entry,
+                "fields": schema_to_fields(entry.config_schema(), saved),
+                "enabled": store.is_enabled(entry.id),
+                "errors": [],
+                "saved": False,
+                "pickers": _picker_values(settings),
+                "schedule": _schedule_context(entry, error=schedule_error),
+                "embedded": request.query_params.get("embedded") == "1",
+            },
+            status_code=status_code,
         )
 
     @app.post(
@@ -266,6 +369,7 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
                 "errors": errors,
                 "saved": not errors,
                 "pickers": _picker_values(settings),
+                "schedule": _schedule_context(entry),
                 "embedded": request.query_params.get("embedded") == "1",
             },
             status_code=422 if errors else 200,
@@ -313,6 +417,54 @@ def create_app(settings: Settings | None = None, *, registry_path: Path | None =
             raise HTTPException(status_code=404, detail=f"no job {job_id}")
         jobs.cancel(job_id)
         return JSONResponse({"cancelled": job_id})
+
+    # --- selection handover (Phase 8a) --------------------------------------------------
+
+    @app.post("/api/inbox")
+    async def inbox(request: Request) -> JSONResponse:
+        """Accept a selection of asset IDs from Immich's web UI and return an opaque token.
+
+        Deliberately **not** session-authenticated. The call is cross-origin from Immich's page,
+        where the hub's SameSite=lax cookie is not sent, so requiring a session would only mean it
+        never works. What guards it instead: the CORS allowlist is exactly ``EMBED_ORIGIN``, the
+        rate limiter applies, the body is capped, and the token this returns is worthless without a
+        logged-in hub session to exchange it. Nothing here reads or reveals anything.
+        """
+        if not settings.embed_origin:
+            raise HTTPException(status_code=503, detail="EMBED_ORIGIN is not configured")
+
+        origin = request.headers.get("origin", "")
+        if origin and origin.rstrip("/") != settings.embed_origin:
+            log.warning("rejected an inbox post from an unexpected origin")
+            raise HTTPException(status_code=403, detail="origin not allowed")
+
+        client = request.client.host if request.client else "unknown"
+        if not limiter.allow(f"inbox:{client}"):
+            raise HTTPException(status_code=429, detail="too many inbox requests")
+
+        payload = await _json_or_form(request)
+        raw = payload.get("asset_ids") or payload.get("assetIds") or []
+        if not isinstance(raw, list):
+            raise HTTPException(status_code=422, detail="asset_ids must be a list")
+
+        try:
+            selection = selections.create([str(a) for a in raw])
+        except SelectionError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        # The token and the count, never the IDs.
+        return JSONResponse(
+            {"token": selection.token, "count": selection.count, "ttl_s": int(selections.ttl_s)},
+            status_code=201,
+        )
+
+    @app.get("/api/selection/{token}", dependencies=[Depends(require_login)])
+    async def read_selection(token: str) -> JSONResponse:
+        """Exchange a token for its asset IDs. Requires a hub session; this is the read side."""
+        selection = selections.resolve(token)
+        if selection is None:
+            raise HTTPException(status_code=404, detail="that selection has expired")
+        return JSONResponse({"asset_ids": list(selection.asset_ids), "count": selection.count})
 
     # --- webhook ------------------------------------------------------------------------
 

@@ -296,8 +296,8 @@ class JobQueue:
             self._finish(job_id, JobStatus.CANCELLED, "cancelled")
         except Exception as exc:  # noqa: BLE001 - a failing addon must not kill the worker
             log.exception("job %s (%s) failed", job_id, job.addon)
-            self._finish(job_id, JobStatus.FAILED, f"{type(exc).__name__}: {exc}")
             self._append_log(job_id, traceback.format_exc().rstrip())
+            self._finish(job_id, JobStatus.FAILED, f"{type(exc).__name__}: {exc}")
         else:
             self._set_progress(job_id, 1.0)
             self._finish(job_id, JobStatus.DONE, "done")
@@ -312,13 +312,15 @@ class JobQueue:
             )
 
     def _finish(self, job_id: int, status: JobStatus, message: str) -> None:
+        # Log the reason *before* the status becomes terminal. The jobs page polls, and a poll
+        # landing between the two would otherwise show a failed job with no explanation.
+        if message:
+            self._append_log(job_id, message)
         with self._connect() as conn:
             conn.execute(
                 "UPDATE jobs SET status = ?, finished_at = ? WHERE id = ?",
                 (status, _now(), job_id),
             )
-        if message:
-            self._append_log(job_id, message)
 
     def _set_progress(self, job_id: int, fraction: float) -> None:
         with self._connect() as conn:

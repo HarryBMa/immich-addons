@@ -17,6 +17,7 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "python-multipart>=0.0.9",
+    "scenedetect>=0.7.1",
     "uvicorn[standard]>=0.30",
     "weasyprint>=69.0",
 ]

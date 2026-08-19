@@ -12,9 +12,12 @@ plumbing around them: gather candidates, select, sequence, render, write.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import logging
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -57,6 +60,12 @@ class ZineMakerConfig(AddonConfig):
         description='Free-text search, e.g. "kids at the beach". Ignored when an album is chosen.',
     )
     album_id: str = Field(default="", title="Album", json_schema_extra={"x-picker": "albums"})
+    asset_ids: list[str] = Field(
+        default_factory=list,
+        title="Selected photos",
+        description="Filled in when you arrive from Immich's 'Send to Addons'. Wins over both.",
+        json_schema_extra={"x-widget": "selection"},
+    )
     pages: int = Field(default=8, title="Pages", json_schema_extra={"enum": [8, 16]})
     page_orientation: str = Field(
         default="portrait",
@@ -99,7 +108,7 @@ class ZineMakerConfig(AddonConfig):
             raise ValueError("page_orientation must be portrait or landscape")
         if self.pages not in {8, 16}:
             raise ValueError("pages must be 8 or 16")
-        if not self.topic and not self.album_id:
+        if not self.topic and not self.album_id and not self.asset_ids:
             raise ValueError("give either a topic or an album")
         if self.layout == "mini8" and self.pages != 8:
             raise ValueError("the mini8 format is exactly 8 pages")
@@ -233,14 +242,18 @@ class ZineMaker(Addon):
             ctx.artifact("file", str(printable), "imposed PDF (print)")
             ctx.log(f"wrote {sequential.name} and {printable.name}")
 
-            if config.upload_pages and not config.dry_run:
-                ctx.log("page upload is not implemented yet; the PDFs are on disk")
+            if config.upload_pages:
+                ctx.progress(0.9, "uploading page images")
+                self._upload_pages(ctx, client, config, sequential)
 
     # --- steps ---------------------------------------------------------------------------
 
     def _candidates(self, client: ImmichClient, config: ZineMakerConfig) -> list[dict[str, Any]]:
         wanted = photos_needed(config.pages)
-        if config.album_id:
+        if config.asset_ids:
+            # An explicit selection beats a search: you picked these on purpose.
+            assets = [client.asset_info(asset_id) for asset_id in config.asset_ids]
+        elif config.album_id:
             album = client.album_info(config.album_id)
             assets = [a for a in album.get("assets", []) if isinstance(a, dict)]
         else:
@@ -376,6 +389,77 @@ class ZineMaker(Addon):
         _write_pdf(sequential_html, sequential)
         _write_pdf(print_html, printable)
         return sequential, printable
+
+    def _upload_pages(
+        self, ctx: JobContext, client: ImmichClient, config: ZineMakerConfig, pdf: Path
+    ) -> None:
+        """Upload one image per page into an album, so the zine is readable inside Immich.
+
+        The *sequential* PDF, not the imposed one: the imposed sheets are upside-down and out of
+        order by design, which is correct for a printer and useless on a phone.
+        """
+        images = page_images(pdf, self.settings.output_dir / f"{pdf.stem}_pages")
+        if not images:
+            ctx.log("no page images were produced; skipping the upload")
+            return
+
+        # One hash per run of the PDF's bytes, so re-running with the same content re-uploads the
+        # same deviceAssetIds and Immich recognises them instead of duplicating the album.
+        digest = hashlib.sha256(pdf.read_bytes()).hexdigest()[:8]
+        title = config.title or config.topic or "Zine"
+
+        asset_ids: list[str] = []
+        for number, image in enumerate(images, start=1):
+            uploaded = client.upload_asset(
+                image, device_asset_id=f"{ADDON_ID}_{pdf.stem}_p{number:02d}_{digest}"
+            )
+            asset_id = str(uploaded.get("id") or "")
+            if asset_id:
+                asset_ids.append(asset_id)
+
+        if not asset_ids:
+            ctx.log(f"dry run: would upload {len(images)} page image(s) to album 'Zine: {title}'")
+            return
+
+        album = client.create_album(f"Zine: {title}", asset_ids=asset_ids)
+        ctx.artifact("album", str(album.get("id") or ""), f"Zine: {title}")
+
+        tag_id = ""
+        for tag in client.tags():
+            if str(tag.get("name") or "") == TAG:
+                tag_id = str(tag.get("id") or "")
+                break
+        if not tag_id:
+            tag_id = str(client.create_tag(TAG).get("id") or "")
+        if tag_id:
+            client.assign_tag(tag_id, asset_ids)
+        ctx.log(f"uploaded {len(asset_ids)} page image(s) to album 'Zine: {title}'")
+
+
+def page_images(pdf: Path, out_dir: Path, *, dpi: int = 150) -> list[Path]:
+    """Rasterise a PDF to one JPEG per page with poppler's ``pdftoppm``.
+
+    Poppler rather than a Python PDF library because the hub image already needs a pile of native
+    rendering libraries for WeasyPrint, and this is one apt package rather than another wheel.
+    """
+    tool = shutil.which("pdftoppm")
+    if tool is None:
+        raise AddonError(
+            "pdftoppm (poppler-utils) is required to upload page images. It ships in the hub's "
+            "Docker image; install poppler-utils to use this outside it."
+        )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = out_dir / pdf.stem
+    result = subprocess.run(  # noqa: S603
+        [tool, "-jpeg", "-r", str(dpi), str(pdf), str(prefix)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AddonError(f"pdftoppm failed: {result.stderr.strip().splitlines()[-1:] or ['?']}")
+    return sorted(out_dir.glob(f"{pdf.stem}-*.jpg"))
 
 
 def _write_pdf(html: str, dest: Path) -> None:

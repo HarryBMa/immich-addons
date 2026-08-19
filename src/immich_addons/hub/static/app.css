@@ -50,6 +50,8 @@ body.embedded .page { padding-top: 20px; }
 .card-head { display: flex; gap: 12px; align-items: flex-start; }
 .icon { width: 46px; height: 46px; flex: none; border-radius: 11px; background: repeating-linear-gradient(135deg, var(--line) 0 5px, var(--sunk) 5px 10px); }
 .card-title { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+/* Entry points are long and dotted; without this they push the card wider than its grid track. */
+.card-title .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-title .row { display: flex; align-items: center; gap: 8px; }
 .name { font-size: 15px; font-weight: 600; color: var(--text); }
 .desc { font-size: 13px; color: var(--dim); line-height: 1.5; margin: 0; }
