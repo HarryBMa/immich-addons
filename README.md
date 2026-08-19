@@ -69,11 +69,21 @@ dry-run-first checklist.
 > The screenshots above were taken with no `HUB_PASSWORD` set, which is why the catalog shows a
 > warning banner. Set one.
 
+## Inside Immich, optionally
+
+Set `EMBED_ORIGIN` and the hub can be framed by your Immich UI, with "Send to Addons" handing a
+photo selection straight into a prefilled addon form. The IDs are POSTed once and replaced by a
+short-lived token carried in the URL *fragment*, so they never appear in a URL, an access log or a
+`Referer` header. The contract is in [docs/embedding.md](docs/embedding.md).
+
+The Immich side is a small three-commit fork, in its own repository. Without it — or if a rebase
+ever fights back — every addon stays fully usable at `:8484`.
+
 ## Status
 
-Phases 0–7 are done: the store, all four addons, and the scheduler. Phase 8 (an inbox endpoint and
-a small Immich-side integration) is next. See [PLAN.md](PLAN.md) for the phase plan and
-[CLAUDE.md](CLAUDE.md) for the standing rules.
+Phases 0–8a are done: the store, all four addons, the scheduler, and the hub side of the Immich
+embed. Phase 8b (the Immich fork itself) lives in a separate repo and is not built yet. See
+[PLAN.md](PLAN.md) for the phase plan and [CLAUDE.md](CLAUDE.md) for the standing rules.
 
 Acceptance checks that need real hardware — a full run against the dev Immich, timing on the NAS,
 and folding a printed zine — are tracked in the PLAN and are not claimed here.

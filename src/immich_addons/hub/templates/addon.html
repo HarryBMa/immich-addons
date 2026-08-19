@@ -28,7 +28,11 @@
   <div class="field">
     <label for="f-{{ field.name }}">{{ field.label }}{% if field.required %} <span class="req">*</span>{% endif %}</label>
 
-    {% if field.widget == 'checkbox' %}
+    {% if field.widget == 'selection' %}
+      {# Asset IDs are never typed. They arrive from Immich via #sel=<token> and app.js fills this. #}
+      <input type="hidden" id="f-{{ field.name }}" name="{{ field.name }}" value="{{ field.value_str }}" data-selection-input>
+      <p class="hint" data-selection-count>{% if field.value %}{{ field.value | length }} photo(s) selected{% else %}Nothing sent from Immich yet.{% endif %}</p>
+    {% elif field.widget == 'checkbox' %}
       <input type="checkbox" id="f-{{ field.name }}" name="{{ field.name }}" {% if field.value %}checked{% endif %}>
     {% elif field.widget == 'select' %}
       <select id="f-{{ field.name }}" name="{{ field.name }}">

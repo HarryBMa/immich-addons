@@ -46,7 +46,13 @@ class TripBestPicksConfig(AddonConfig):
         default="trip",
         title="Source",
         description="Where the candidate photos come from.",
-        json_schema_extra={"enum": ["album", "date_range", "trip"]},
+        json_schema_extra={"enum": ["album", "date_range", "trip", "selection"]},
+    )
+    asset_ids: list[str] = Field(
+        default_factory=list,
+        title="Selected photos",
+        description="Filled in when you arrive from Immich's 'Send to Addons'.",
+        json_schema_extra={"x-widget": "selection"},
     )
     album_id: str = Field(default="", title="Album", json_schema_extra={"x-picker": "albums"})
     date_from: date | None = Field(default=None, title="From")
@@ -89,12 +95,14 @@ class TripBestPicksConfig(AddonConfig):
 
     @model_validator(mode="after")
     def _check_source_fields(self) -> TripBestPicksConfig:
-        if self.source not in {"album", "date_range", "trip"}:
-            raise ValueError("source must be one of album, date_range, trip")
+        if self.source not in {"album", "date_range", "trip", "selection"}:
+            raise ValueError("source must be one of album, date_range, trip, selection")
         if self.embedding_source not in {"db", "local"}:
             raise ValueError("embedding_source must be db or local")
         if self.source == "album" and not self.album_id:
             raise ValueError("source 'album' needs an album_id")
+        if self.source == "selection" and not self.asset_ids:
+            raise ValueError("source 'selection' needs asset_ids — send a selection from Immich")
         if self.source == "date_range" and not (self.date_from and self.date_to):
             raise ValueError("source 'date_range' needs both date_from and date_to")
         if self.date_from and self.date_to and self.date_from > self.date_to:
@@ -273,6 +281,12 @@ class TripBestPicks(Addon):
     def _candidates(
         self, ctx: JobContext, client: ImmichClient, config: TripBestPicksConfig
     ) -> tuple[list[dict[str, Any]], str]:
+        if config.source == "selection":
+            # Fetched one by one: a selection is tens of photos, and asset_info is the only call
+            # that turns an ID back into the metadata the rest of the pipeline needs.
+            assets = [client.asset_info(asset_id) for asset_id in config.asset_ids]
+            return self._photos_only(assets), f"selection of {len(config.asset_ids)}"
+
         if config.source == "album":
             album = client.album_info(config.album_id)
             assets = [a for a in album.get("assets", []) if isinstance(a, dict)]

@@ -24,8 +24,9 @@ services:
     volumes:
       - hub-data:/data
     devices:
-      # Quick Sync for ffmpeg. Remove this line on a host without an Intel iGPU; the hub falls
-      # back to libx264 on its own.
+      # Quick Sync for ffmpeg. Safe to leave in place either way: the hub proves Quick Sync works
+      # by encoding a frame with it at startup, and falls back to libx264 if that fails — a device
+      # node that is present but unusable is handled the same as one that is absent.
       - /dev/dri:/dev/dri
     networks:
       - immich

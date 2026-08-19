@@ -67,6 +67,10 @@ def _options(spec: dict[str, Any]) -> list[tuple[str, str]]:
 
 
 def _widget_for(spec: dict[str, Any]) -> Widget:
+    if spec.get("x-widget"):
+        # An addon asking for a specific widget wins: "selection" is a list of asset IDs that a
+        # human should never be typing into a comma-separated box.
+        return str(spec["x-widget"])
     if spec.get("enum"):
         return "select"
     kind = spec.get("type")
@@ -93,7 +97,7 @@ def schema_to_fields(
 
     for name, raw_spec in schema.get("properties", {}).items():
         spec, optional = _unwrap_optional(raw_spec)
-        widget = _widget_for(spec)
+        widget = _widget_for({**spec, **{k: v for k, v in raw_spec.items() if k == "x-widget"}})
         value = values.get(name, spec.get("default"))
 
         fields.append(
