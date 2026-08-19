@@ -16,6 +16,11 @@ build/
 .ruff_cache/
 .mypy_cache/
 
+# development fixtures — generated deterministically by scripts/make_fixtures.py, so the
+# generator is the artefact worth versioning, not a few MB of synthetic JPEGs
+fixtures/photos/
+fixtures/clips/
+
 # runtime data (hub writes here: luts/, music/, output/, cache/, jobs.sqlite)
 data/
 *.sqlite

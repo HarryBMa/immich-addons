@@ -1,0 +1,30 @@
+{% if not jobs %}
+<p class="empty">Nothing has run yet.</p>
+{% else %}
+<table class="jobs">
+  <thead>
+    <tr><th>#</th><th>Addon</th><th>Status</th><th>Progress</th><th>Started</th><th>Last log line</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for job in jobs %}
+    <tr>
+      <td class="mono"><a href="/jobs/{{ job.id }}">{{ job.id }}</a></td>
+      <td>{{ job.addon }}</td>
+      <td><span class="status {{ job.status }}">{{ job.status }}</span></td>
+      <td>
+        <div class="bar" title="{{ (job.progress * 100) | round }}%"><span style="width: {{ (job.progress * 100) | round }}%"></span></div>
+      </td>
+      <td class="mono faint">{{ job.started_at.strftime('%d %b %H:%M') if job.started_at else '—' }}</td>
+      <td class="mono faint clip">{{ job.log.splitlines()[-1] if job.log else '' }}</td>
+      <td>
+        {% if job.status in ('queued', 'running') %}
+        <button class="btn small" data-cancel="{{ job.id }}" type="button">Cancel</button>
+        {% elif job.artifacts %}
+        <span class="mono faint">{{ job.artifacts | length }} artifact{{ '' if job.artifacts | length == 1 else 's' }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

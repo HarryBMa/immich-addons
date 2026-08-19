@@ -15,20 +15,39 @@ First-party addons:
 
 ## Status
 
-Phase 1 — the shared core library (Immich client, read-only embedding reader, job queue, ffmpeg
-wrappers) and `scripts/probe.py`. No addons implemented yet. See [PLAN.md](PLAN.md) for the phase
+Phase 2 — the store itself runs: catalog, per-addon config forms generated from each addon's
+schema, a job queue with a live job list, and a webhook endpoint. The four addons are registered
+but their pipelines are stubs, landing one phase at a time. See [PLAN.md](PLAN.md) for the phase
 plan and [CLAUDE.md](CLAUDE.md) for the standing rules.
+
+## Run it
+
+```sh
+uv sync
+cp .env.example .env                # or use a vault — see docs/secrets.md
+uv run immich-addons-hub            # http://127.0.0.1:8484
+```
+
+In Docker, next to an existing Immich:
+
+```sh
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+The hub joins Immich's network, keeps its state in `/data`, and binds to loopback unless you widen
+`HUB_BIND`. It is meant for a LAN or Tailscale — never the open internet.
 
 ## Development
 
 ```sh
-uv sync                 # create .venv and install deps + dev group from the lockfile
 uv run ruff check .     # lint
 uv run ruff format .    # format
-uv run pytest           # tests
+uv run pytest           # tests — none of them touch a network or a database
 ```
 
-Copy `.env.example` to `.env` and fill it in before running anything that talks to Immich.
+Full setup, including the throwaway dev Immich and the fixture generator, is in
+[docs/development.md](docs/development.md). Secret handling, including
+[vaulted](https://github.com/woosal1337/vaulted), is in [docs/secrets.md](docs/secrets.md).
 
 Then check this repo's assumptions against your actual server — endpoint names and the CLIP
 embedding table are discovered, never hardcoded from documentation:

@@ -1,0 +1,91 @@
+# Throwaway development stack: its own Immich, its own database, its own volumes, its own ports.
+#
+#   docker compose -f deploy/dev/docker-compose.yml --env-file deploy/dev/.env up -d
+#   uv run python scripts/make_fixtures.py        # generate fixtures/ (once)
+#   uv run python scripts/seed_dev.py             # upload them
+#   uv run python scripts/probe.py                # PASS/FAIL against this instance
+#
+# This stack usually runs on the same host as a production Immich, so every name here is
+# deliberately distinct: compose project `immich-addons-dev`, port 2284 instead of 2283, its own
+# network and volumes. Nothing here reads the production .env.
+#
+# Image tags are pinned through deploy/dev/.env. Check the tags upstream before first use —
+# the database image in particular has changed name across Immich releases:
+#   https://github.com/immich-app/immich/releases
+
+name: immich-addons-dev
+
+services:
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:${DEV_IMMICH_TAG:-release}
+    restart: unless-stopped
+    depends_on: [database, redis]
+    environment:
+      DB_HOSTNAME: database
+      DB_USERNAME: ${DEV_DB_USER:-immich}
+      DB_PASSWORD: ${DEV_DB_PASSWORD:-devonly}
+      DB_DATABASE_NAME: ${DEV_DB_NAME:-immich}
+      REDIS_HOSTNAME: redis
+      IMMICH_MACHINE_LEARNING_URL: http://immich-machine-learning:3003
+    ports:
+      - "${DEV_BIND:-127.0.0.1}:${DEV_IMMICH_PORT:-2284}:2283"
+    volumes:
+      - dev-upload:/usr/src/app/upload
+      - /etc/localtime:/etc/localtime:ro
+    networks: [dev]
+
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:${DEV_IMMICH_TAG:-release}
+    restart: unless-stopped
+    volumes:
+      - dev-model-cache:/cache
+    networks: [dev]
+
+  database:
+    image: ${DEV_DB_IMAGE:-ghcr.io/immich-app/postgres:14-vectorchord0.4.3}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DEV_DB_USER:-immich}
+      POSTGRES_PASSWORD: ${DEV_DB_PASSWORD:-devonly}
+      POSTGRES_DB: ${DEV_DB_NAME:-immich}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports:
+      # Exposed so scripts/probe.py can introspect the embedding table from the workstation.
+      - "${DEV_BIND:-127.0.0.1}:${DEV_DB_PORT:-5433}:5432"
+    volumes:
+      - dev-db:/var/lib/postgresql/data
+      - ./init-readonly-role.sql:/docker-entrypoint-initdb.d/10-addons-ro.sql:ro
+    networks: [dev]
+
+  redis:
+    image: docker.io/valkey/valkey:8-bookworm
+    restart: unless-stopped
+    networks: [dev]
+
+  addons-hub:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: immich-addons-hub:dev
+    restart: unless-stopped
+    depends_on: [immich-server]
+    env_file: .env
+    environment:
+      IMMICH_URL: http://immich-server:2283
+      IMMICH_DB_HOST: database
+      IMMICH_DB_PORT: "5432"
+      DATA_DIR: /data
+    ports:
+      - "${DEV_BIND:-127.0.0.1}:${DEV_HUB_PORT:-8485}:8484"
+    volumes:
+      - dev-hub-data:/data
+    networks: [dev]
+
+volumes:
+  dev-upload:
+  dev-db:
+  dev-model-cache:
+  dev-hub-data:
+
+networks:
+  dev:

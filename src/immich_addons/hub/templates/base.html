@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Addons{% endblock %} · Immich Addons</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body{% if embedded %} class="embedded"{% endif %}>
+  {% if not embedded %}
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <span class="wordmark">immich</span>
+      <span class="sep">/</span>
+      <span class="section">Addons</span>
+    </div>
+    <nav class="topnav">
+      <a href="/"{% if request.url.path == '/' %} class="current"{% endif %}>Catalog</a>
+      <a href="/jobs"{% if request.url.path.startswith('/jobs') %} class="current"{% endif %}>Jobs</a>
+      <form method="post" action="/logout"><button class="linkish" type="submit">Sign out</button></form>
+    </nav>
+  </header>
+  {% endif %}
+
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Catalog{% endblock %}
+
+{% block content %}
+<div class="head">
+  <div>
+    <h1>Addons</h1>
+    <p class="dim">Extend this server. Addons run on your hardware and write to Immich only by adding — never by deleting or overwriting.</p>
+  </div>
+  <div class="head-actions">
+    <span class="pill">Installed · {{ cards | selectattr('entry.installed') | list | length }}</span>
+  </div>
+</div>
+
+{% if unlocked %}
+<p class="banner warn">HUB_PASSWORD is not set, so this hub has no login. Set one before exposing it beyond localhost.</p>
+{% endif %}
+
+<div class="grid">
+  {% for card in cards %}
+  {% set entry = card.entry %}
+  <article class="card">
+    <div class="card-head">
+      <span class="icon" aria-hidden="true"></span>
+      <div class="card-title">
+        <div class="row">
+          <a class="name" href="/addons/{{ entry.id }}">{{ entry.name }}</a>
+          {% if entry.installed %}
+            <span class="dot {{ 'ok' if card.enabled else 'idle' }}" title="{{ 'Enabled' if card.enabled else 'Disabled' }}"></span>
+          {% else %}
+            <span class="dot warn" title="{{ entry.status }}"></span>
+          {% endif %}
+        </div>
+        <div class="mono faint">{{ entry.entrypoint }}</div>
+      </div>
+    </div>
+
+    <p class="desc">{{ entry.description }}</p>
+
+    <div class="meta mono">
+      <span>v{{ entry.version }}</span>
+      {% for capability in entry.capabilities %}<span>·</span><span>{{ capability }}</span>{% endfor %}
+      {% if not entry.installed %}<span>·</span><span class="warn">{{ entry.status }}</span>{% endif %}
+    </div>
+
+    <div class="card-actions">
+      <a class="btn" href="/addons/{{ entry.id }}">Configure</a>
+      {% if entry.installed %}
+        {% if 'manual' in entry.capabilities %}
+        <button class="btn primary" data-run="{{ entry.id }}" type="button">Run</button>
+        {% endif %}
+        <form method="post" action="/addons/{{ entry.id }}/enabled" class="toggle">
+          <input type="hidden" name="enabled" value="{{ 'off' if card.enabled else 'on' }}">
+          <button class="btn" type="submit">{{ 'Disable' if card.enabled else 'Enable' }}</button>
+        </form>
+      {% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+
+<p class="note">Addons are additive by design: every asset one uploads carries an <code>addon:</code> tag, dry run is the default, and nothing is ever deleted or overwritten.</p>
+<script src="/static/app.js"></script>
+{% endblock %}

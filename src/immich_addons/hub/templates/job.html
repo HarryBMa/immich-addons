@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.id }}{% endblock %}
+
+{% block content %}
+<div class="crumbs"><a href="/jobs">Jobs</a> <span>/</span> <span class="dim">#{{ job.id }}</span></div>
+
+<div class="head">
+  <div>
+    <h1>{{ job.addon }} <span class="status {{ job.status }}">{{ job.status }}</span></h1>
+    <p class="mono faint">queued {{ job.created_at.strftime('%d %b %Y %H:%M') }}{% if job.finished_at %} · finished {{ job.finished_at.strftime('%H:%M') }}{% endif %}</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Parameters</h2>
+  <pre class="mono">{{ job.params | tojson(indent=2) }}</pre>
+</div>
+
+{% if job.artifacts %}
+<div class="panel">
+  <h2>Produced</h2>
+  <ul>{% for artifact in job.artifacts %}<li class="mono">{{ artifact.kind }}: {{ artifact.value }} {% if artifact.label %}<span class="faint">({{ artifact.label }})</span>{% endif %}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>Log</h2>
+  <pre class="log mono">{{ job.log }}</pre>
+</div>
+{% endblock %}

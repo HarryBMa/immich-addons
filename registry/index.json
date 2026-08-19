@@ -1,4 +1,41 @@
 {
   "registry_version": 1,
-  "addons": []
+  "addons": [
+    {
+      "id": "auto-lut",
+      "name": "Auto-LUT",
+      "version": "0.1.0",
+      "description": "Applies a chosen .cube LUT to new photos/videos and stacks the graded copy with the original.",
+      "entrypoint": "immich_addons.addons.auto_lut:AutoLut",
+      "capabilities": ["webhook", "poll"],
+      "min_immich": "3.0.0"
+    },
+    {
+      "id": "trip-best-picks",
+      "name": "Trip Best Picks",
+      "version": "0.1.0",
+      "description": "Selects the best photos from a trip while keeping the selection varied, and collects them in an album.",
+      "entrypoint": "immich_addons.addons.trip_best_picks:TripBestPicks",
+      "capabilities": ["manual"],
+      "min_immich": "3.0.0"
+    },
+    {
+      "id": "zine-maker",
+      "name": "Zine Maker",
+      "version": "0.1.0",
+      "description": "Lays out a printable zine from a search or an album: a folded single sheet or a saddle-stitch booklet, as print-ready PDF.",
+      "entrypoint": "immich_addons.addons.zine_maker:ZineMaker",
+      "capabilities": ["manual"],
+      "min_immich": "3.0.0"
+    },
+    {
+      "id": "year-highlights",
+      "name": "Year Highlights",
+      "version": "0.1.0",
+      "description": "Finds the best moments across a year of video and cuts them into one film, with music and month titles.",
+      "entrypoint": "immich_addons.addons.year_highlights:YearHighlights",
+      "capabilities": ["manual", "schedule"],
+      "min_immich": "3.0.0"
+    }
+  ]
 }

@@ -43,6 +43,7 @@ class Settings(BaseSettings):
 
     hub_port: int = 8484
     hub_password: str = ""
+    hub_webhook_token: str = ""
     embed_origin: str = ""
 
     data_dir: Path = Path("/data")
