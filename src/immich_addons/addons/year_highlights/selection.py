@@ -37,6 +37,13 @@ class Scene:
     faces: float = 0.0
     #: Cheap visual descriptor (a colour histogram) used for variety, not recognition.
     descriptor: list[float] = field(default_factory=list)
+    #: ``"video"`` or ``"photo"``. A still has no motion and no sound, so it can only lose a
+    #: like-for-like comparison against video — it is selected from its own pool instead.
+    kind: str = "video"
+
+    @property
+    def is_photo(self) -> bool:
+        return self.kind == "photo"
 
     @property
     def duration_s(self) -> float:
@@ -61,6 +68,7 @@ class Scene:
             "sharpness": self.sharpness,
             "faces": self.faces,
             "descriptor": list(self.descriptor),
+            "kind": self.kind,
         }
 
     @classmethod
@@ -75,6 +83,8 @@ class Scene:
             sharpness=float(data.get("sharpness", 0.0)),
             faces=float(data.get("faces", 0.0)),
             descriptor=list(data.get("descriptor", [])),
+            # Older caches predate photos; anything without a kind is video.
+            kind=str(data.get("kind", "video")),
         )
 
 
@@ -123,29 +133,29 @@ def descriptors(scenes: list[Scene]) -> np.ndarray:
     return np.stack(rows)
 
 
-def select_scenes(
+#: Share of the film's slots reserved for stills when photos are mixed in. A fifth is enough for
+#: them to register as a deliberate rhythm change without the film turning into a slideshow.
+PHOTO_SHARE = 0.2
+
+
+def select_pool(
     scenes: list[Scene],
     *,
-    target_length_s: float,
-    clip_length_s: float = 3.0,
+    slots: int,
     max_per_day: int = 3,
     max_per_asset: int = 2,
     diversity: float = 0.7,
 ) -> list[Scene]:
-    """Choose scenes for the film: quality, with quotas and month coverage.
-
-    Three passes:
+    """Choose ``slots`` scenes from one homogeneous pool. Three passes:
 
     1. **quota filter** — drop scenes beyond ``max_per_day`` / ``max_per_asset``, keeping the best
        of each. Without this, one long birthday recording wins the whole film;
     2. **coverage** — take the best remaining scene from every month that has footage, so a year
        film actually spans the year;
-    3. **fill** — MMR over what is left until the target length is reached, so the remaining time
-       goes to good *and* visually varied moments.
-
-    Returns the chosen scenes in chronological order — the film is a year, so it runs forwards.
+    3. **fill** — MMR over what is left until the slots are used, so the remaining time goes to
+       good *and* visually varied moments.
     """
-    if not scenes:
+    if not scenes or slots <= 0:
         return []
 
     scores = score_scenes(scenes)
@@ -164,8 +174,6 @@ def select_scenes(
         per_asset[scene.asset_id] = per_asset.get(scene.asset_id, 0) + 1
         eligible.append(index)
 
-    slots = max(1, int(target_length_s / max(0.5, clip_length_s)))
-
     chosen: list[int] = []
     by_month: dict[int, list[int]] = {}
     for index in eligible:
@@ -182,7 +190,48 @@ def select_scenes(
         picks = scoring.mmr_select(subset, scores[remaining], wanted, lam=diversity)
         chosen.extend(remaining[p] for p in picks)
 
-    return sorted((scenes[i] for i in chosen), key=lambda s: (s.taken_at, s.start_s))
+    return [scenes[i] for i in chosen]
+
+
+def select_scenes(
+    scenes: list[Scene],
+    *,
+    target_length_s: float,
+    clip_length_s: float = 3.0,
+    photo_length_s: float = 2.0,
+    max_per_day: int = 3,
+    max_per_asset: int = 2,
+    diversity: float = 0.7,
+) -> list[Scene]:
+    """Choose what goes in the film, video and stills each from their own pool.
+
+    Stills are selected separately rather than thrown in with the video: a photo has no motion and
+    no sound, which are 60% of the score, so in a single pool a still could only ever lose. Giving
+    them a reserved share is the honest way to say "some photos, chosen on their own merits".
+
+    Returns the chosen scenes in chronological order — the film is a year, so it runs forwards.
+    """
+    if not scenes:
+        return []
+
+    videos = [s for s in scenes if not s.is_photo]
+    photos = [s for s in scenes if s.is_photo]
+
+    slots = max(1, int(target_length_s / max(0.5, clip_length_s)))
+    photo_slots = round(slots * PHOTO_SHARE) if photos and videos else (slots if photos else 0)
+    # Stills are shorter, so the time they give back buys extra video slots.
+    reclaimed = photo_slots * (clip_length_s - photo_length_s) / max(0.5, clip_length_s)
+    video_slots = slots - photo_slots + int(reclaimed)
+
+    quotas = {
+        "max_per_day": max_per_day,
+        "max_per_asset": max_per_asset,
+        "diversity": diversity,
+    }
+    chosen = select_pool(videos, slots=video_slots, **quotas)
+    chosen += select_pool(photos, slots=photo_slots, **quotas)
+
+    return sorted(chosen, key=lambda s: (s.taken_at, s.start_s))
 
 
 def trim_window(scene: Scene, clip_length_s: float) -> tuple[float, float]:
